@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h1>Website Blocker</h1>
+
+  <section>
+    <h2>Blocked Domains</h2>
+    <ul id="blocked-list"></ul>
+    <form id="blocked-form">
+      <input type="text" id="blocked-input" placeholder="example.com" required>
+      <button type="submit">Add</button>
+    </form>
+  </section>
+
+  <section>
+    <h2>Allowed Paths</h2>
+    <ul id="allowed-list"></ul>
+    <form id="allowed-form">
+      <input type="text" id="allowed-input" placeholder="reddit.com/r/austin" required>
+      <button type="submit">Add</button>
+    </form>
+  </section>
+
+  <script src="popup.js"></script>
+</body>
+</html>
