@@ -33,20 +33,24 @@ function buildRules(blockedDomains, allowedPaths) {
 }
 
 async function syncRules() {
-  const data = await chrome.storage.sync.get({
-    blockedDomains: [],
-    allowedPaths: []
-  });
+  try {
+    const data = await chrome.storage.sync.get({
+      blockedDomains: [],
+      allowedPaths: []
+    });
 
-  const newRules = buildRules(data.blockedDomains, data.allowedPaths);
+    const newRules = buildRules(data.blockedDomains, data.allowedPaths);
 
-  const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
-  const removeRuleIds = existingRules.map(r => r.id);
+    const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
+    const removeRuleIds = existingRules.map(r => r.id);
 
-  await chrome.declarativeNetRequest.updateDynamicRules({
-    removeRuleIds,
-    addRules: newRules
-  });
+    await chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds,
+      addRules: newRules
+    });
+  } catch (error) {
+    console.error("Failed to sync rules:", error);
+  }
 }
 
 chrome.storage.onChanged.addListener((changes, area) => {
