@@ -60,3 +60,44 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 syncRules();
+
+function isBlocked(url, blockedDomains, allowedPaths) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+
+  const hostname = parsed.hostname.replace(/^www\./, "");
+  const hostAndPath = hostname + parsed.pathname;
+
+  for (const path of allowedPaths) {
+    if (hostAndPath.startsWith(path)) {
+      return false;
+    }
+  }
+
+  for (const domain of blockedDomains) {
+    if (hostname === domain || hostname.endsWith("." + domain)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+chrome.webNavigation.onHistoryStateUpdated.addListener(async (details) => {
+  if (details.frameId !== 0) return;
+
+  const data = await chrome.storage.sync.get({
+    blockedDomains: [],
+    allowedPaths: []
+  });
+
+  if (isBlocked(details.url, data.blockedDomains, data.allowedPaths)) {
+    chrome.tabs.update(details.tabId, {
+      url: chrome.runtime.getURL("/blocked.html")
+    });
+  }
+});

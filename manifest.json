@@ -5,7 +5,8 @@
   "description": "Block distracting websites with path-level allowlisting",
   "permissions": [
     "declarativeNetRequest",
-    "storage"
+    "storage",
+    "webNavigation"
   ],
   "host_permissions": [
     "<all_urls>"
