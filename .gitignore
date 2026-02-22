@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Chrome extension packaging
+*.pem
+*.crx
+*.zip
+
+# Docs/plans
+docs/plans/
