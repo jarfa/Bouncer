@@ -70,7 +70,7 @@ function isBlocked(url, blockedDomains, allowedPaths) {
   }
 
   const hostname = parsed.hostname.replace(/^www\./, "");
-  const hostAndPath = hostname + parsed.pathname;
+  const hostAndPath = hostname + parsed.pathname.toLowerCase();
 
   for (const path of allowedPaths) {
     if (hostAndPath.startsWith(path)) {
