@@ -1,4 +1,4 @@
-# Website Blocker
+# Bouncer
 
 A Chrome extension that blocks distracting websites, with path-level allowlisting. Block `reddit.com` but still access `reddit.com/r/austin`.
 
