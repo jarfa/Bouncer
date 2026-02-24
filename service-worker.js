@@ -1,3 +1,93 @@
+// --- Pause state ---
+
+async function isPaused() {
+  const { paused } = await chrome.storage.local.get({ paused: false });
+  return paused;
+}
+
+function updateBadge(pauseEnd) {
+  const remaining = pauseEnd - Date.now();
+  if (remaining <= 0) {
+    chrome.action.setBadgeText({ text: "" });
+    return;
+  }
+  const mins = Math.ceil(remaining / 60000);
+  chrome.action.setBadgeText({ text: mins + "m" });
+  chrome.action.setBadgeBackgroundColor({ color: "#4a90d9" });
+}
+
+async function schedulePauseAlarms(pauseEnd) {
+  await chrome.alarms.clear("pause-end");
+  await chrome.alarms.clear("pause-badge");
+  await chrome.alarms.clear("pause-warning");
+
+  chrome.alarms.create("pause-end", { when: pauseEnd });
+
+  const remaining = pauseEnd - Date.now();
+  if (remaining > 60000) {
+    chrome.alarms.create("pause-badge", {
+      delayInMinutes: 1,
+      periodInMinutes: 1
+    });
+  }
+
+  const warningTime = pauseEnd - 30000;
+  if (warningTime > Date.now()) {
+    chrome.alarms.create("pause-warning", { when: warningTime });
+  }
+
+  updateBadge(pauseEnd);
+}
+
+async function clearRules() {
+  const existing = await chrome.declarativeNetRequest.getDynamicRules();
+  const removeRuleIds = existing.map(r => r.id);
+  if (removeRuleIds.length > 0) {
+    await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds });
+  }
+}
+
+async function redirectBlockedTabs() {
+  const data = await chrome.storage.sync.get({
+    blockedDomains: [],
+    allowedPaths: []
+  });
+  const tabs = await chrome.tabs.query({});
+  for (const tab of tabs) {
+    if (tab.url && isBlocked(tab.url, data.blockedDomains, data.allowedPaths)) {
+      chrome.tabs.update(tab.id, {
+        url: chrome.runtime.getURL("/blocked.html")
+      });
+    }
+  }
+}
+
+async function startPause(durationMs) {
+  const pauseEnd = Date.now() + durationMs;
+  await chrome.storage.local.set({ paused: true, pauseEnd });
+  await clearRules();
+  await schedulePauseAlarms(pauseEnd);
+}
+
+async function extendPause(durationMs) {
+  const { pauseEnd } = await chrome.storage.local.get("pauseEnd");
+  if (!pauseEnd) return;
+  const newEnd = pauseEnd + durationMs;
+  await chrome.storage.local.set({ pauseEnd: newEnd });
+  await schedulePauseAlarms(newEnd);
+}
+
+async function endPause() {
+  await chrome.alarms.clear("pause-end");
+  await chrome.alarms.clear("pause-badge");
+  await chrome.alarms.clear("pause-warning");
+  await chrome.storage.local.set({ paused: false });
+  await chrome.storage.local.remove("pauseEnd");
+  chrome.action.setBadgeText({ text: "" });
+  await syncRules();
+  await redirectBlockedTabs();
+}
+
 function buildRules(blockedDomains, allowedPaths) {
   const rules = [];
   let id = 1;
@@ -34,6 +124,8 @@ function buildRules(blockedDomains, allowedPaths) {
 
 async function syncRules() {
   try {
+    if (await isPaused()) return;
+
     const data = await chrome.storage.sync.get({
       blockedDomains: [],
       allowedPaths: []
@@ -59,7 +151,20 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
-syncRules();
+(async () => {
+  const { paused, pauseEnd } = await chrome.storage.local.get({
+    paused: false,
+    pauseEnd: 0
+  });
+  if (paused && pauseEnd > Date.now()) {
+    await clearRules();
+    await schedulePauseAlarms(pauseEnd);
+  } else if (paused) {
+    await endPause();
+  } else {
+    await syncRules();
+  }
+})();
 
 function isBlocked(url, blockedDomains, allowedPaths) {
   let parsed;
@@ -89,6 +194,7 @@ function isBlocked(url, blockedDomains, allowedPaths) {
 
 chrome.webNavigation.onHistoryStateUpdated.addListener(async (details) => {
   if (details.frameId !== 0) return;
+  if (await isPaused()) return;
 
   const data = await chrome.storage.sync.get({
     blockedDomains: [],
@@ -99,5 +205,32 @@ chrome.webNavigation.onHistoryStateUpdated.addListener(async (details) => {
     chrome.tabs.update(details.tabId, {
       url: chrome.runtime.getURL("/blocked.html")
     });
+  }
+});
+
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === "pause-end") {
+    await endPause();
+  } else if (alarm.name === "pause-badge") {
+    const { pauseEnd } = await chrome.storage.local.get("pauseEnd");
+    if (pauseEnd) {
+      updateBadge(pauseEnd);
+    }
+  } else if (alarm.name === "pause-warning") {
+    chrome.action.setBadgeText({ text: "30s" });
+    chrome.action.setBadgeBackgroundColor({ color: "#e33" });
+  }
+});
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === "pause") {
+    startPause(message.duration).then(() => sendResponse({ ok: true }));
+    return true;
+  } else if (message.action === "extendPause") {
+    extendPause(message.duration).then(() => sendResponse({ ok: true }));
+    return true;
+  } else if (message.action === "resumeBlocking") {
+    endPause().then(() => sendResponse({ ok: true }));
+    return true;
   }
 });
