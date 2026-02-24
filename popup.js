@@ -3,6 +3,7 @@ const pauseActive = document.getElementById("pause-active");
 const pauseStatus = document.getElementById("pause-status");
 
 let countdownInterval = null;
+let pauseActionInProgress = false;
 
 function renderPauseUI(paused, pauseEnd) {
   if (paused && pauseEnd > Date.now()) {
@@ -42,12 +43,22 @@ function stopCountdown() {
 }
 
 async function sendPauseAction(action, duration) {
-  await chrome.runtime.sendMessage({ action, duration });
+  if (pauseActionInProgress) return;
+  pauseActionInProgress = true;
+  try {
+    const response = await chrome.runtime.sendMessage({ action, duration });
+    if (response && !response.ok) {
+      console.error("Pause action failed:", response.error);
+    }
+  } catch (err) {
+    console.error("Failed to send pause action:", err);
+  }
   const { paused, pauseEnd } = await chrome.storage.local.get({
     paused: false,
     pauseEnd: 0
   });
   renderPauseUI(paused, pauseEnd);
+  pauseActionInProgress = false;
 }
 
 document.getElementById("pause-1").addEventListener("click", () => {
