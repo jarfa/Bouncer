@@ -78,14 +78,18 @@ async function extendPause(durationMs) {
 }
 
 async function endPause() {
-  await chrome.alarms.clear("pause-end");
-  await chrome.alarms.clear("pause-badge");
-  await chrome.alarms.clear("pause-warning");
-  await chrome.storage.local.set({ paused: false });
-  await chrome.storage.local.remove("pauseEnd");
-  chrome.action.setBadgeText({ text: "" });
-  await syncRules();
-  await redirectBlockedTabs();
+  try {
+    await chrome.alarms.clear("pause-end");
+    await chrome.alarms.clear("pause-badge");
+    await chrome.alarms.clear("pause-warning");
+    await chrome.storage.local.set({ paused: false });
+    await chrome.storage.local.remove("pauseEnd");
+    chrome.action.setBadgeText({ text: "" });
+    await syncRules();
+    await redirectBlockedTabs();
+  } catch (error) {
+    console.error("Failed to end pause:", error);
+  }
 }
 
 function buildRules(blockedDomains, allowedPaths) {
@@ -224,13 +228,19 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "pause") {
-    startPause(message.duration).then(() => sendResponse({ ok: true }));
+    startPause(message.duration)
+      .then(() => sendResponse({ ok: true }))
+      .catch(err => sendResponse({ ok: false, error: err.message }));
     return true;
   } else if (message.action === "extendPause") {
-    extendPause(message.duration).then(() => sendResponse({ ok: true }));
+    extendPause(message.duration)
+      .then(() => sendResponse({ ok: true }))
+      .catch(err => sendResponse({ ok: false, error: err.message }));
     return true;
   } else if (message.action === "resumeBlocking") {
-    endPause().then(() => sendResponse({ ok: true }));
+    endPause()
+      .then(() => sendResponse({ ok: true }))
+      .catch(err => sendResponse({ ok: false, error: err.message }));
     return true;
   }
 });
