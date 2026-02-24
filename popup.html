@@ -7,6 +7,21 @@
 <body>
   <h1>Bouncer</h1>
 
+  <section id="pause-section">
+    <div id="pause-default">
+      <button id="pause-1" class="pause-btn">Pause 1 min</button>
+      <button id="pause-5" class="pause-btn">Pause 5 min</button>
+    </div>
+    <div id="pause-active" hidden>
+      <p id="pause-status">Paused — 0:00 remaining</p>
+      <div class="pause-controls">
+        <button id="extend-1" class="pause-btn small">+1 min</button>
+        <button id="extend-5" class="pause-btn small">+5 min</button>
+        <button id="resume-btn" class="pause-btn resume">Resume</button>
+      </div>
+    </div>
+  </section>
+
   <section>
     <h2>Blocked Domains</h2>
     <ul id="blocked-list"></ul>

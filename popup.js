@@ -1,3 +1,75 @@
+const pauseDefault = document.getElementById("pause-default");
+const pauseActive = document.getElementById("pause-active");
+const pauseStatus = document.getElementById("pause-status");
+
+let countdownInterval = null;
+
+function renderPauseUI(paused, pauseEnd) {
+  if (paused && pauseEnd > Date.now()) {
+    pauseDefault.hidden = true;
+    pauseActive.hidden = false;
+    startCountdown(pauseEnd);
+  } else {
+    pauseDefault.hidden = false;
+    pauseActive.hidden = true;
+    stopCountdown();
+  }
+}
+
+function startCountdown(pauseEnd) {
+  stopCountdown();
+  function tick() {
+    const remaining = pauseEnd - Date.now();
+    if (remaining <= 0) {
+      renderPauseUI(false, 0);
+      loadAndRender();
+      return;
+    }
+    const mins = Math.floor(remaining / 60000);
+    const secs = Math.floor((remaining % 60000) / 1000);
+    pauseStatus.textContent =
+      "Paused \u2014 " + mins + ":" + secs.toString().padStart(2, "0") + " remaining";
+  }
+  tick();
+  countdownInterval = setInterval(tick, 1000);
+}
+
+function stopCountdown() {
+  if (countdownInterval) {
+    clearInterval(countdownInterval);
+    countdownInterval = null;
+  }
+}
+
+async function sendPauseAction(action, duration) {
+  await chrome.runtime.sendMessage({ action, duration });
+  const { paused, pauseEnd } = await chrome.storage.local.get({
+    paused: false,
+    pauseEnd: 0
+  });
+  renderPauseUI(paused, pauseEnd);
+}
+
+document.getElementById("pause-1").addEventListener("click", () => {
+  sendPauseAction("pause", 60000);
+});
+
+document.getElementById("pause-5").addEventListener("click", () => {
+  sendPauseAction("pause", 300000);
+});
+
+document.getElementById("extend-1").addEventListener("click", () => {
+  sendPauseAction("extendPause", 60000);
+});
+
+document.getElementById("extend-5").addEventListener("click", () => {
+  sendPauseAction("extendPause", 300000);
+});
+
+document.getElementById("resume-btn").addEventListener("click", () => {
+  sendPauseAction("resumeBlocking");
+});
+
 const blockedList = document.getElementById("blocked-list");
 const allowedList = document.getElementById("allowed-list");
 const blockedForm = document.getElementById("blocked-form");
@@ -31,6 +103,12 @@ async function loadAndRender() {
   });
   renderList(blockedList, data.blockedDomains, "blockedDomains");
   renderList(allowedList, data.allowedPaths, "allowedPaths");
+
+  const { paused, pauseEnd } = await chrome.storage.local.get({
+    paused: false,
+    pauseEnd: 0
+  });
+  renderPauseUI(paused, pauseEnd);
 }
 
 async function addItem(storageKey, value) {

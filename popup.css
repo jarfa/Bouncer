@@ -78,3 +78,65 @@ button[type="submit"] {
 button[type="submit"]:hover {
   background: #357abd;
 }
+
+#pause-section {
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #eee;
+}
+
+#pause-default {
+  display: flex;
+  gap: 8px;
+}
+
+.pause-btn {
+  padding: 8px 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+#pause-default .pause-btn {
+  flex: 1;
+  background: #f0f0f0;
+  color: #333;
+}
+
+#pause-default .pause-btn:hover {
+  background: #e0e0e0;
+}
+
+#pause-status {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #e67e22;
+}
+
+.pause-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.pause-btn.small {
+  flex: 1;
+  background: #f0f0f0;
+  color: #333;
+}
+
+.pause-btn.small:hover {
+  background: #e0e0e0;
+}
+
+.pause-btn.resume {
+  flex: 1;
+  background: #4a90d9;
+  color: #fff;
+}
+
+.pause-btn.resume:hover {
+  background: #357abd;
+}
