@@ -1,246 +1,191 @@
-// --- Pause state ---
+import { buildRules, isBlocked, normalizeDomain, normalizePath } from "./core.js";
 
-async function isPaused() {
-  const { paused } = await chrome.storage.local.get({ paused: false });
-  return paused;
+// --- state access ---
+
+async function readState() {
+  const sync = await chrome.storage.sync.get({
+    blockedDomains: [],
+    allowedPaths: []
+  });
+  const local = await chrome.storage.local.get({ pauseEnd: 0 });
+  return { ...sync, pauseEnd: local.pauseEnd };
 }
 
-function updateBadge(pauseEnd) {
-  const remaining = pauseEnd - Date.now();
-  if (remaining <= 0) {
+function blockedPageUrl(originalUrl) {
+  return (
+    chrome.runtime.getURL("blocked.html") +
+    "?url=" +
+    encodeURIComponent(originalUrl)
+  );
+}
+
+// --- reconciler ---
+// Single source of truth: reads storage, applies the COMPLETE desired
+// rule/alarm/badge state. Idempotent. All invocations serialized.
+
+let queue = Promise.resolve();
+
+function reconcile() {
+  queue = queue.then(doReconcile).catch((err) => {
+    console.error("reconcile failed:", err);
+    chrome.action.setBadgeText({ text: "!" });
+    chrome.action.setBadgeBackgroundColor({ color: "#e33" });
+  });
+  return queue;
+}
+
+async function doReconcile() {
+  const state = await readState();
+  const paused = state.pauseEnd > Date.now();
+
+  const rules = buildRules({
+    blockedDomains: state.blockedDomains,
+    allowedPaths: state.allowedPaths,
+    paused,
+    extensionOrigin: chrome.runtime.getURL("").replace(/\/$/, "")
+  });
+
+  const existing = await chrome.declarativeNetRequest.getDynamicRules();
+  await chrome.declarativeNetRequest.updateDynamicRules({
+    removeRuleIds: existing.map((r) => r.id),
+    addRules: rules
+  });
+
+  await syncAlarms(state.pauseEnd, paused);
+  updateBadge(state.pauseEnd, paused);
+}
+
+async function syncAlarms(pauseEnd, paused) {
+  if (!paused) {
+    await chrome.alarms.clear("pause-end");
+    await chrome.alarms.clear("pause-badge");
+    await chrome.alarms.clear("pause-warning");
+    return;
+  }
+  chrome.alarms.create("pause-end", { when: pauseEnd });
+  chrome.alarms.create("pause-badge", { periodInMinutes: 1 });
+  if (pauseEnd - 30000 > Date.now()) {
+    chrome.alarms.create("pause-warning", { when: pauseEnd - 30000 });
+  } else {
+    await chrome.alarms.clear("pause-warning");
+  }
+}
+
+function updateBadge(pauseEnd, paused) {
+  if (!paused) {
     chrome.action.setBadgeText({ text: "" });
     return;
   }
-  const mins = Math.ceil(remaining / 60000);
-  chrome.action.setBadgeText({ text: mins + "m" });
-  chrome.action.setBadgeBackgroundColor({ color: "#4a90d9" });
-}
-
-async function schedulePauseAlarms(pauseEnd) {
-  await chrome.alarms.clear("pause-end");
-  await chrome.alarms.clear("pause-badge");
-  await chrome.alarms.clear("pause-warning");
-
-  chrome.alarms.create("pause-end", { when: pauseEnd });
-
   const remaining = pauseEnd - Date.now();
-  if (remaining > 60000) {
-    chrome.alarms.create("pause-badge", {
-      delayInMinutes: 1,
-      periodInMinutes: 1
-    });
-  }
-
-  const warningTime = pauseEnd - 30000;
-  if (warningTime > Date.now()) {
-    chrome.alarms.create("pause-warning", { when: warningTime });
-  }
-
-  updateBadge(pauseEnd);
-}
-
-async function clearRules() {
-  const existing = await chrome.declarativeNetRequest.getDynamicRules();
-  const removeRuleIds = existing.map(r => r.id);
-  if (removeRuleIds.length > 0) {
-    await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds });
+  if (remaining <= 30000) {
+    chrome.action.setBadgeText({ text: "30s" });
+    chrome.action.setBadgeBackgroundColor({ color: "#e33" });
+  } else {
+    chrome.action.setBadgeText({ text: Math.ceil(remaining / 60000) + "m" });
+    chrome.action.setBadgeBackgroundColor({ color: "#4a90d9" });
   }
 }
 
-async function redirectBlockedTabs() {
-  const data = await chrome.storage.sync.get({
+// --- pause-expiry sweep: kick tabs off blocked sites, preserving URLs ---
+
+async function sweepBlockedTabs() {
+  const { blockedDomains, allowedPaths } = await chrome.storage.sync.get({
     blockedDomains: [],
     allowedPaths: []
   });
   const tabs = await chrome.tabs.query({});
   for (const tab of tabs) {
-    if (tab.url && isBlocked(tab.url, data.blockedDomains, data.allowedPaths)) {
-      chrome.tabs.update(tab.id, {
-        url: chrome.runtime.getURL("/blocked.html")
-      });
+    if (tab.url && isBlocked(tab.url, blockedDomains, allowedPaths)) {
+      chrome.tabs.update(tab.id, { url: blockedPageUrl(tab.url) });
     }
   }
 }
 
-async function startPause(durationMs) {
-  const pauseEnd = Date.now() + durationMs;
-  await chrome.storage.local.set({ paused: true, pauseEnd });
-  await clearRules();
-  await schedulePauseAlarms(pauseEnd);
-}
+// --- migration (runs on install and update) ---
 
-async function extendPause(durationMs) {
-  const { pauseEnd } = await chrome.storage.local.get("pauseEnd");
-  if (!pauseEnd) return;
-  const newEnd = pauseEnd + durationMs;
-  await chrome.storage.local.set({ pauseEnd: newEnd });
-  await schedulePauseAlarms(newEnd);
-}
-
-async function endPause() {
-  try {
-    await chrome.alarms.clear("pause-end");
-    await chrome.alarms.clear("pause-badge");
-    await chrome.alarms.clear("pause-warning");
-    await chrome.storage.local.set({ paused: false });
-    await chrome.storage.local.remove("pauseEnd");
-    chrome.action.setBadgeText({ text: "" });
-    await syncRules();
-    await redirectBlockedTabs();
-  } catch (error) {
-    console.error("Failed to end pause:", error);
-  }
-}
-
-function buildRules(blockedDomains, allowedPaths) {
-  const rules = [];
-  let id = 1;
-
-  for (const domain of blockedDomains) {
-    rules.push({
-      id: id++,
-      priority: 1,
-      action: {
-        type: "redirect",
-        redirect: { extensionPath: "/blocked.html" }
-      },
-      condition: {
-        urlFilter: "||" + domain,
-        resourceTypes: ["main_frame"]
-      }
-    });
-  }
-
-  for (const path of allowedPaths) {
-    rules.push({
-      id: id++,
-      priority: 2,
-      action: { type: "allow" },
-      condition: {
-        urlFilter: "||" + path,
-        resourceTypes: ["main_frame"]
-      }
-    });
-  }
-
-  return rules;
-}
-
-async function syncRules() {
-  try {
-    if (await isPaused()) return;
-
-    const data = await chrome.storage.sync.get({
-      blockedDomains: [],
-      allowedPaths: []
-    });
-
-    const newRules = buildRules(data.blockedDomains, data.allowedPaths);
-
-    const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
-    const removeRuleIds = existingRules.map(r => r.id);
-
-    await chrome.declarativeNetRequest.updateDynamicRules({
-      removeRuleIds,
-      addRules: newRules
-    });
-  } catch (error) {
-    console.error("Failed to sync rules:", error);
-  }
-}
-
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "sync") {
-    syncRules();
-  }
-});
-
-(async () => {
-  const { paused, pauseEnd } = await chrome.storage.local.get({
-    paused: false,
-    pauseEnd: 0
-  });
-  if (paused && pauseEnd > Date.now()) {
-    await clearRules();
-    await schedulePauseAlarms(pauseEnd);
-  } else if (paused) {
-    await endPause();
-  } else {
-    await syncRules();
-  }
-})();
-
-function isBlocked(url, blockedDomains, allowedPaths) {
-  let parsed;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return false;
-  }
-
-  const hostname = parsed.hostname.replace(/^www\./, "");
-  const hostAndPath = hostname + parsed.pathname.toLowerCase();
-
-  for (const path of allowedPaths) {
-    if (hostAndPath.startsWith(path)) {
-      return false;
-    }
-  }
-
-  for (const domain of blockedDomains) {
-    if (hostname === domain || hostname.endsWith("." + domain)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-chrome.webNavigation.onHistoryStateUpdated.addListener(async (details) => {
-  if (details.frameId !== 0) return;
-  if (await isPaused()) return;
-
+async function migrate() {
   const data = await chrome.storage.sync.get({
     blockedDomains: [],
     allowedPaths: []
   });
+  const blockedDomains = [
+    ...new Set(data.blockedDomains.map(normalizeDomain).filter(Boolean))
+  ];
+  const allowedPaths = [
+    ...new Set(data.allowedPaths.map(normalizePath).filter(Boolean))
+  ];
+  await chrome.storage.sync.set({ blockedDomains, allowedPaths });
+  await chrome.storage.local.remove("paused"); // legacy v1 flag
+}
 
-  if (isBlocked(details.url, data.blockedDomains, data.allowedPaths)) {
-    chrome.tabs.update(details.tabId, {
-      url: chrome.runtime.getURL("/blocked.html")
-    });
-  }
+// --- event glue ---
+
+chrome.runtime.onInstalled.addListener(() => {
+  migrate().then(reconcile);
 });
 
-chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name === "pause-end") {
-    await endPause();
-  } else if (alarm.name === "pause-badge") {
-    const { pauseEnd } = await chrome.storage.local.get("pauseEnd");
-    if (pauseEnd) {
-      updateBadge(pauseEnd);
-    }
-  } else if (alarm.name === "pause-warning") {
-    chrome.action.setBadgeText({ text: "30s" });
-    chrome.action.setBadgeBackgroundColor({ color: "#e33" });
-  }
+chrome.runtime.onStartup.addListener(() => {
+  reconcile();
+});
+
+chrome.storage.onChanged.addListener(() => {
+  reconcile();
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  handleMessage(message).then(
+    () => sendResponse({ ok: true }),
+    (err) => sendResponse({ ok: false, error: err.message })
+  );
+  return true;
+});
+
+async function handleMessage(message) {
   if (message.action === "pause") {
-    startPause(message.duration)
-      .then(() => sendResponse({ ok: true }))
-      .catch(err => sendResponse({ ok: false, error: err.message }));
-    return true;
+    await chrome.storage.local.set({
+      pauseEnd: Date.now() + message.duration
+    });
   } else if (message.action === "extendPause") {
-    extendPause(message.duration)
-      .then(() => sendResponse({ ok: true }))
-      .catch(err => sendResponse({ ok: false, error: err.message }));
-    return true;
+    const { pauseEnd } = await chrome.storage.local.get({ pauseEnd: 0 });
+    if (pauseEnd > Date.now()) {
+      await chrome.storage.local.set({ pauseEnd: pauseEnd + message.duration });
+    }
   } else if (message.action === "resumeBlocking") {
-    endPause()
-      .then(() => sendResponse({ ok: true }))
-      .catch(err => sendResponse({ ok: false, error: err.message }));
-    return true;
+    await chrome.storage.local.remove("pauseEnd");
+  } else {
+    throw new Error("unknown action: " + message.action);
+  }
+  await reconcile();
+  if (message.action === "resumeBlocking") {
+    await sweepBlockedTabs();
+  }
+}
+
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === "pause-end") {
+    await reconcile();
+    await sweepBlockedTabs();
+  } else if (alarm.name === "pause-badge" || alarm.name === "pause-warning") {
+    const { pauseEnd } = await chrome.storage.local.get({ pauseEnd: 0 });
+    updateBadge(pauseEnd, pauseEnd > Date.now());
   }
 });
+
+// Catches SPA pushState navigations (onHistoryStateUpdated) and
+// back/forward-cache restores (onCommitted) that never hit the network,
+// so DNR rules alone can't see them.
+async function onNavigation(details) {
+  if (details.frameId !== 0) return;
+  const { pauseEnd } = await chrome.storage.local.get({ pauseEnd: 0 });
+  if (pauseEnd > Date.now()) return;
+  const { blockedDomains, allowedPaths } = await chrome.storage.sync.get({
+    blockedDomains: [],
+    allowedPaths: []
+  });
+  if (isBlocked(details.url, blockedDomains, allowedPaths)) {
+    chrome.tabs.update(details.tabId, { url: blockedPageUrl(details.url) });
+  }
+}
+
+chrome.webNavigation.onHistoryStateUpdated.addListener(onNavigation);
+chrome.webNavigation.onCommitted.addListener(onNavigation);
