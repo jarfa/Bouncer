@@ -86,3 +86,17 @@ test("isBlocked ignores fragments and tolerates garbage input", () => {
   assert.equal(isBlocked("not a url", ["reddit.com"], []), false);
   assert.equal(isBlocked("", ["reddit.com"], []), false);
 });
+
+test("compilers are not fooled by userinfo in the URL", () => {
+  assert.equal(isBlocked("https://evil.com@reddit.com/", ["reddit.com"], []), true);
+  assert.equal(isBlocked("https://user:pass@reddit.com/x", ["reddit.com"], []), true);
+  assert.equal(isBlocked("https://reddit.com@evil.com/", ["reddit.com"], []), false);
+  assert.equal(
+    isBlocked("https://a@www.reddit.com/r/austin", ["reddit.com"], ["reddit.com/r/austin"]),
+    false
+  );
+});
+
+test("compilePath throws on entries without a slash", () => {
+  assert.throws(() => compilePath("reddit"), /must contain '\/'/);
+});

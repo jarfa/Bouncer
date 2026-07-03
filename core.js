@@ -37,16 +37,19 @@ function escapeRegex(s) {
 // Keep them simple: anchored, no lookarounds.
 export function compileDomain(domain) {
   return (
-    "^https?://([^/:]*\\.)?" + escapeRegex(domain) + "(:\\d+)?(/.*)?$"
+    "^https?://([^/]*@)?([^/:]*\\.)?" + escapeRegex(domain) + "(:\\d+)?(/.*)?$"
   );
 }
 
 export function compilePath(entry) {
   const slash = entry.indexOf("/");
+  if (slash === -1) {
+    throw new Error("compilePath: entry must contain '/': " + entry);
+  }
   const host = entry.slice(0, slash);
   const path = entry.slice(slash);
   return (
-    "^https?://([^/:]*\\.)?" +
+    "^https?://([^/]*@)?([^/:]*\\.)?" +
     escapeRegex(host) +
     "(:\\d+)?" +
     escapeRegex(path) +
