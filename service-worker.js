@@ -121,7 +121,11 @@ async function migrate() {
 // --- event glue ---
 
 chrome.runtime.onInstalled.addListener(() => {
-  migrate().then(reconcile);
+  migrate().then(reconcile).catch((err) => {
+    console.error("migration failed:", err);
+    chrome.action.setBadgeText({ text: "!" });
+    chrome.action.setBadgeBackgroundColor({ color: "#e33" });
+  });
 });
 
 chrome.runtime.onStartup.addListener(() => {
@@ -155,6 +159,8 @@ async function handleMessage(message) {
   } else {
     throw new Error("unknown action: " + message.action);
   }
+  // reconcile() never rejects (errors surface via the "!" badge), so
+  // ok:true reports the storage write, not successful rule application.
   await reconcile();
   if (message.action === "resumeBlocking") {
     await sweepBlockedTabs();
