@@ -111,6 +111,7 @@ export function buildRules({ blockedDomains, allowedPaths, paused, extensionOrig
       action: { type: "allow" },
       condition: {
         regexFilter: "^https?://",
+        isUrlFilterCaseSensitive: false,
         resourceTypes: ["main_frame"]
       }
     });

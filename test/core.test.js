@@ -137,6 +137,8 @@ test("buildRules: allow rules at priority 2 after block rules", () => {
   assert.equal(allow.priority, 2);
   assert.equal(allow.action.type, "allow");
   assert.equal(allow.condition.regexFilter, compilePath("reddit.com/r/austin"));
+  assert.equal(allow.condition.isUrlFilterCaseSensitive, false);
+  assert.deepEqual(allow.condition.resourceTypes, ["main_frame"]);
 });
 
 test("buildRules: pause adds one allow-all rule at priority 9, only when paused", () => {
@@ -153,6 +155,8 @@ test("buildRules: pause adds one allow-all rule at priority 9, only when paused"
   assert.equal(pauseRule.priority, 9);
   assert.equal(pauseRule.action.type, "allow");
   assert.equal(pauseRule.condition.regexFilter, "^https?://");
+  assert.equal(pauseRule.condition.isUrlFilterCaseSensitive, false);
+  assert.deepEqual(pauseRule.condition.resourceTypes, ["main_frame"]);
 });
 
 test("buildRules: empty state yields no rules (or only pause rule)", () => {
