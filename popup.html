@@ -29,6 +29,7 @@
       <input type="text" id="blocked-input" placeholder="example.com" required>
       <button type="submit">Add</button>
     </form>
+    <p class="form-error" id="blocked-error" hidden></p>
   </section>
 
   <section>
@@ -38,8 +39,9 @@
       <input type="text" id="allowed-input" placeholder="reddit.com/r/austin" required>
       <button type="submit">Add</button>
     </form>
+    <p class="form-error" id="allowed-error" hidden></p>
   </section>
 
-  <script src="popup.js"></script>
+  <script type="module" src="popup.js"></script>
 </body>
 </html>

@@ -140,3 +140,9 @@ button[type="submit"]:hover {
 .pause-btn.resume:hover {
   background: #357abd;
 }
+
+.form-error {
+  color: #c0392b;
+  font-size: 12px;
+  margin: 4px 0 0;
+}

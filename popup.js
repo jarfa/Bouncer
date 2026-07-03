@@ -1,3 +1,5 @@
+import { normalizeDomain, normalizePath } from "./core.js";
+
 const pauseDefault = document.getElementById("pause-default");
 const pauseActive = document.getElementById("pause-active");
 const pauseStatus = document.getElementById("pause-status");
@@ -5,8 +7,8 @@ const pauseStatus = document.getElementById("pause-status");
 let countdownInterval = null;
 let pauseActionInProgress = false;
 
-function renderPauseUI(paused, pauseEnd) {
-  if (paused && pauseEnd > Date.now()) {
+function renderPauseUI(pauseEnd) {
+  if (pauseEnd > Date.now()) {
     pauseDefault.hidden = true;
     pauseActive.hidden = false;
     startCountdown(pauseEnd);
@@ -22,14 +24,14 @@ function startCountdown(pauseEnd) {
   function tick() {
     const remaining = pauseEnd - Date.now();
     if (remaining <= 0) {
-      renderPauseUI(false, 0);
+      renderPauseUI(0);
       loadAndRender();
       return;
     }
     const mins = Math.floor(remaining / 60000);
     const secs = Math.floor((remaining % 60000) / 1000);
     pauseStatus.textContent =
-      "Paused \u2014 " + mins + ":" + secs.toString().padStart(2, "0") + " remaining";
+      "Paused — " + mins + ":" + secs.toString().padStart(2, "0") + " remaining";
   }
   tick();
   countdownInterval = setInterval(tick, 1000);
@@ -53,11 +55,8 @@ async function sendPauseAction(action, duration) {
   } catch (err) {
     console.error("Failed to send pause action:", err);
   }
-  const { paused, pauseEnd } = await chrome.storage.local.get({
-    paused: false,
-    pauseEnd: 0
-  });
-  renderPauseUI(paused, pauseEnd);
+  const { pauseEnd } = await chrome.storage.local.get({ pauseEnd: 0 });
+  renderPauseUI(pauseEnd);
   pauseActionInProgress = false;
 }
 
@@ -87,6 +86,8 @@ const blockedForm = document.getElementById("blocked-form");
 const allowedForm = document.getElementById("allowed-form");
 const blockedInput = document.getElementById("blocked-input");
 const allowedInput = document.getElementById("allowed-input");
+const blockedError = document.getElementById("blocked-error");
+const allowedError = document.getElementById("allowed-error");
 
 function renderList(ul, items, storageKey) {
   ul.innerHTML = "";
@@ -98,7 +99,7 @@ function renderList(ul, items, storageKey) {
     li.appendChild(span);
 
     const btn = document.createElement("button");
-    btn.textContent = "\u00d7";
+    btn.textContent = "×";
     btn.title = "Remove";
     btn.addEventListener("click", () => removeItem(storageKey, item));
     li.appendChild(btn);
@@ -115,11 +116,8 @@ async function loadAndRender() {
   renderList(blockedList, data.blockedDomains, "blockedDomains");
   renderList(allowedList, data.allowedPaths, "allowedPaths");
 
-  const { paused, pauseEnd } = await chrome.storage.local.get({
-    paused: false,
-    pauseEnd: 0
-  });
-  renderPauseUI(paused, pauseEnd);
+  const { pauseEnd } = await chrome.storage.local.get({ pauseEnd: 0 });
+  renderPauseUI(pauseEnd);
 }
 
 async function addItem(storageKey, value) {
@@ -134,27 +132,42 @@ async function addItem(storageKey, value) {
 
 async function removeItem(storageKey, value) {
   const data = await chrome.storage.sync.get({ [storageKey]: [] });
-  const list = data[storageKey].filter(item => item !== value);
+  const list = data[storageKey].filter((item) => item !== value);
   await chrome.storage.sync.set({ [storageKey]: list });
   loadAndRender();
 }
 
-blockedForm.addEventListener("submit", (e) => {
+function handleAdd(e, { input, errorEl, normalize, storageKey, message }) {
   e.preventDefault();
-  const value = blockedInput.value.trim().toLowerCase();
-  if (value) {
-    addItem("blockedDomains", value);
-    blockedInput.value = "";
+  const normalized = normalize(input.value);
+  if (normalized === null) {
+    errorEl.textContent = message;
+    errorEl.hidden = false;
+    return;
   }
-});
+  errorEl.hidden = true;
+  addItem(storageKey, normalized);
+  input.value = "";
+}
 
-allowedForm.addEventListener("submit", (e) => {
-  e.preventDefault();
-  const value = allowedInput.value.trim().toLowerCase();
-  if (value) {
-    addItem("allowedPaths", value);
-    allowedInput.value = "";
-  }
-});
+blockedForm.addEventListener("submit", (e) =>
+  handleAdd(e, {
+    input: blockedInput,
+    errorEl: blockedError,
+    normalize: normalizeDomain,
+    storageKey: "blockedDomains",
+    message: "Not a valid domain (e.g. reddit.com)"
+  })
+);
+
+allowedForm.addEventListener("submit", (e) =>
+  handleAdd(e, {
+    input: allowedInput,
+    errorEl: allowedError,
+    normalize: normalizePath,
+    storageKey: "allowedPaths",
+    message: "Not a valid domain/path (e.g. reddit.com/r/austin)"
+  })
+);
 
 loadAndRender();
