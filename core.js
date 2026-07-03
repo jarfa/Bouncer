@@ -68,3 +68,53 @@ export function isBlocked(url, blockedDomains, allowedPaths) {
   }
   return false;
 }
+
+export function buildRules({ blockedDomains, allowedPaths, paused, extensionOrigin }) {
+  const rules = [];
+  let id = 1;
+
+  for (const domain of blockedDomains) {
+    rules.push({
+      id: id++,
+      priority: 1,
+      action: {
+        type: "redirect",
+        redirect: {
+          regexSubstitution: extensionOrigin + "/blocked.html?url=\\0"
+        }
+      },
+      condition: {
+        regexFilter: compileDomain(domain),
+        isUrlFilterCaseSensitive: false,
+        resourceTypes: ["main_frame"]
+      }
+    });
+  }
+
+  for (const path of allowedPaths) {
+    rules.push({
+      id: id++,
+      priority: 2,
+      action: { type: "allow" },
+      condition: {
+        regexFilter: compilePath(path),
+        isUrlFilterCaseSensitive: false,
+        resourceTypes: ["main_frame"]
+      }
+    });
+  }
+
+  if (paused) {
+    rules.push({
+      id: id++,
+      priority: 9,
+      action: { type: "allow" },
+      condition: {
+        regexFilter: "^https?://",
+        resourceTypes: ["main_frame"]
+      }
+    });
+  }
+
+  return rules;
+}

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeDomain, normalizePath, compileDomain, compilePath, isBlocked } from "../core.js";
+import { normalizeDomain, normalizePath, compileDomain, compilePath, isBlocked, buildRules } from "../core.js";
 
 test("normalizeDomain accepts a plain domain", () => {
   assert.equal(normalizeDomain("reddit.com"), "reddit.com");
@@ -99,4 +99,65 @@ test("compilers are not fooled by userinfo in the URL", () => {
 
 test("compilePath throws on entries without a slash", () => {
   assert.throws(() => compilePath("reddit"), /must contain '\/'/);
+});
+
+const ORIGIN = "chrome-extension://abcdefgh";
+
+test("buildRules: block rules redirect with regexSubstitution, priority 1", () => {
+  const rules = buildRules({
+    blockedDomains: ["reddit.com", "x.com"],
+    allowedPaths: [],
+    paused: false,
+    extensionOrigin: ORIGIN
+  });
+  assert.equal(rules.length, 2);
+  assert.deepEqual(rules.map(r => r.id), [1, 2]);
+  const r = rules[0];
+  assert.equal(r.priority, 1);
+  assert.equal(r.action.type, "redirect");
+  assert.equal(
+    r.action.redirect.regexSubstitution,
+    ORIGIN + "/blocked.html?url=\\0"
+  );
+  assert.equal(r.condition.regexFilter, compileDomain("reddit.com"));
+  assert.equal(r.condition.isUrlFilterCaseSensitive, false);
+  assert.deepEqual(r.condition.resourceTypes, ["main_frame"]);
+});
+
+test("buildRules: allow rules at priority 2 after block rules", () => {
+  const rules = buildRules({
+    blockedDomains: ["reddit.com"],
+    allowedPaths: ["reddit.com/r/austin"],
+    paused: false,
+    extensionOrigin: ORIGIN
+  });
+  assert.equal(rules.length, 2);
+  const allow = rules[1];
+  assert.equal(allow.id, 2);
+  assert.equal(allow.priority, 2);
+  assert.equal(allow.action.type, "allow");
+  assert.equal(allow.condition.regexFilter, compilePath("reddit.com/r/austin"));
+});
+
+test("buildRules: pause adds one allow-all rule at priority 9, only when paused", () => {
+  const base = {
+    blockedDomains: ["reddit.com"],
+    allowedPaths: [],
+    extensionOrigin: ORIGIN
+  };
+  const unpaused = buildRules({ ...base, paused: false });
+  assert.equal(unpaused.length, 1);
+  const paused = buildRules({ ...base, paused: true });
+  assert.equal(paused.length, 2);
+  const pauseRule = paused[1];
+  assert.equal(pauseRule.priority, 9);
+  assert.equal(pauseRule.action.type, "allow");
+  assert.equal(pauseRule.condition.regexFilter, "^https?://");
+});
+
+test("buildRules: empty state yields no rules (or only pause rule)", () => {
+  assert.deepEqual(
+    buildRules({ blockedDomains: [], allowedPaths: [], paused: false, extensionOrigin: ORIGIN }),
+    []
+  );
 });
