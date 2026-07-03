@@ -28,3 +28,40 @@ export function normalizePath(input) {
   if (path === "" || /\s/.test(path)) return null;
   return host + "/" + path;
 }
+
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Generated regexes are used BOTH as DNR regexFilter (RE2) and in JS.
+// Keep them simple: anchored, no lookarounds.
+export function compileDomain(domain) {
+  return (
+    "^https?://([^/:]*\\.)?" + escapeRegex(domain) + "(:\\d+)?(/.*)?$"
+  );
+}
+
+export function compilePath(entry) {
+  const slash = entry.indexOf("/");
+  const host = entry.slice(0, slash);
+  const path = entry.slice(slash);
+  return (
+    "^https?://([^/:]*\\.)?" +
+    escapeRegex(host) +
+    "(:\\d+)?" +
+    escapeRegex(path) +
+    "([/?#].*)?$"
+  );
+}
+
+export function isBlocked(url, blockedDomains, allowedPaths) {
+  const target = String(url).split("#")[0];
+  if (!/^https?:\/\//i.test(target)) return false;
+  for (const p of allowedPaths) {
+    if (new RegExp(compilePath(p), "i").test(target)) return false;
+  }
+  for (const d of blockedDomains) {
+    if (new RegExp(compileDomain(d), "i").test(target)) return true;
+  }
+  return false;
+}
