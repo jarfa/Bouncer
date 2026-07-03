@@ -14,13 +14,26 @@
       background: #fff;
       color: #333;
     }
+    main {
+      max-width: 40rem;
+      padding: 0 2rem;
+      text-align: center;
+    }
     h1 {
       font-size: 2rem;
       font-weight: 400;
+      overflow-wrap: break-word;
+    }
+    #blocked-url {
+      font-weight: 600;
     }
   </style>
 </head>
 <body>
-  <h1>This site is blocked.</h1>
+  <main>
+    <h1 id="generic" hidden>This site is blocked.</h1>
+    <h1 id="with-url" hidden><span id="blocked-url"></span> is blocked.</h1>
+  </main>
+  <script src="blocked.js"></script>
 </body>
 </html>
