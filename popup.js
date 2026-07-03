@@ -146,7 +146,12 @@ function handleAdd(e, { input, errorEl, normalize, storageKey, message }) {
     return;
   }
   errorEl.hidden = true;
-  addItem(storageKey, normalized);
+  addItem(storageKey, normalized).catch((err) => {
+    console.error("addItem failed:", err);
+    errorEl.textContent = "Failed to save — please try again.";
+    errorEl.hidden = false;
+    input.value = normalized; // restore so the entry isn't lost
+  });
   input.value = "";
 }
 
